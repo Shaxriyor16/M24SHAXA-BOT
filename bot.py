@@ -1,18 +1,19 @@
 import os
 import asyncio
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, F, types
 from aiogram.enums import ParseMode
-from aiogram.types import DefaultBotProperties, Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-# TOKEN va ADMIN_ID
-TOKEN = "7858191430:AAF2G3nxunGzFDVCCLwApA_31ymjTLIQtZA"
-ADMIN_ID = 429955887
+# .env orqali olingan token va admin id
+TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
-# To‘lov cheklarini saqlash papkasi
+# Fayllarni saqlash papkasi
 PAYMENT_CHECKS_FOLDER = "payment_checks"
 os.makedirs(PAYMENT_CHECKS_FOLDER, exist_ok=True)
 
@@ -20,12 +21,12 @@ os.makedirs(PAYMENT_CHECKS_FOLDER, exist_ok=True)
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 
-# FSM holatlari
+# Holatlar (FSM)
 class RegistrationState(StatesGroup):
     waiting_for_payment_check = State()
     waiting_for_pubg_nick = State()
 
-# Inline menyu
+# Asosiy menyu
 main_menu = InlineKeyboardMarkup(inline_keyboard=[
     [
         InlineKeyboardButton(text="📝 Ro'yxatdan o'tish", callback_data="register"),
@@ -39,78 +40,64 @@ main_menu = InlineKeyboardMarkup(inline_keyboard=[
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📤 Check yuborish", callback_data="send_check")]
-    ])
-    await message.answer("Assalomu alaykum!\nTo‘lov chekini yuborish uchun tugmani bosing:", reply_markup=keyboard)
+    await message.answer(
+        "👋 <b>ASSALOMU ALYKUM</b>\n"
+        "TDM TOURNAMENT BOTGA🎮 Xush kelibsiz!\n\n"
+        "Bu botdan🤖 foydalanib turnirda qatnashish imkoniyatingiz bor.\n\n"
+        "⚠️ <b>Oldindan ogohlantirish:</b> turnirda qatnashish <b>pullik</b>💵.\n"
+        "Ya'ni slotlik! Biz sizni majburlamaymiz, bu <b>sizning qaroringiz</b>!!!🔞\n\n"
+        "Agar turnirda qatnashmoqchi bo‘lsangiz, mana shu pastdagi 💳 karta raqamlariga <b>10.000 so‘m</b> tashlab ro'yxatdan o'tishingiz mumkin!!!\n\n"
+        "❗️ Chekni yuborish uchun '📝 Ro'yxatdan o'tish' tugmasini bosing.\n"
+        "❗️ Faqat rasm (chek rasmi) yuboring, ikki marta to‘lov qilmaslik uchun ehtiyot bo‘ling!\n\n"
+        "<b>TURNIRDA QATNASHUVCHILARGA OMAD!</b>",
+        reply_markup=main_menu
+    )
 
-@dp.callback_query(F.data == "send_check")
-async def ask_for_check(callback: CallbackQuery):
-    await callback.message.answer("Iltimos, to‘lov chekini rasm yoki fayl shaklida yuboring.")
+@dp.callback_query(F.data == "register")
+async def ask_for_check(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("💳 Iltimos, to‘lov chekini rasm yoki fayl shaklida yuboring.")
+    await state.set_state(RegistrationState.waiting_for_payment_check)
     await callback.answer()
 
-@dp.message(F.document | F.photo)
-async def handle_check_upload(message: Message):
+@dp.message(RegistrationState.waiting_for_payment_check, F.document | F.photo)
+async def handle_check(message: Message, state: FSMContext):
     if message.document:
         file_id = message.document.file_id
         ext = message.document.file_name.split('.')[-1]
     else:
         file_id = message.photo[-1].file_id
         ext = "jpg"
-    file = await bot.get_file(file_id)
+
     filename = f"{message.from_user.id}_{file_id}.{ext}"
-    saved_path = os.path.join(PAYMENT_CHECKS_FOLDER, filename)
-
-    # Faylni yuklab olish
-    await bot.download_file_by_id(file_id, destination=saved_path)
-
-    await message.answer("✅ Chekingiz qabul qilindi. Admin tekshiradi.")
+    path = os.path.join(PAYMENT_CHECKS_FOLDER, filename)
+    await bot.download_file_by_id(file_id, destination=path)
 
     # Adminga yuborish
     await bot.send_photo(
-        ADMIN_ID, 
+        ADMIN_ID,
         photo=file_id,
-        caption=(
-            f"🧾 Yangi to‘lov cheki keldi!\n"
-            f"👤 @{message.from_user.username or message.from_user.full_name}\n"
-            f"🆔 ID: {message.from_user.id}\n"
-            f"📎 Fayl nomi: {filename}"
-        )
+        caption=f"📥 Yangi chek keldi:\n👤 @{message.from_user.username or message.from_user.full_name}\n🆔 ID: {message.from_user.id}\n📎 Fayl: {filename}"
     )
-    await message.answer(
-        "Iltimos, endi PUBG nick va ID'ingizni yozib yuboring."
-    )
-    # FSMni keyingi bosqichga o'tkazish
-    state = dp.current_state(user=message.from_user.id)
+
+    await message.answer("✅ Chekingiz yuborildi. Endi PUBG nick va ID'ingizni yozing.")
     await state.set_state(RegistrationState.waiting_for_pubg_nick)
 
-@dp.message(RegistrationState.waiting_for_payment_check)
-async def wrong_payment_format(message: Message):
-    await message.answer("❌ Iltimos, faqat rasm yoki hujjat shaklidagi to‘lov chekini yuboring!")
-
 @dp.message(RegistrationState.waiting_for_pubg_nick)
-async def handle_pubg_nick(message: Message, state: FSMContext):
-    user_pubg_info = message.text
-    await message.answer(
-        f"📋 Sizning PUBG ma'lumotingiz qabul qilindi:\n{user_pubg_info}\n\n"
-        "Tez orada turnir vaqti haqida xabar beramiz."
-    )
-    # Adminga yuborish
-    await bot.send_message(
-        ADMIN_ID,
-        f"📢 PUBG ma'lumot keldi:\n👤 @{message.from_user.username or message.from_user.full_name}\n🆔 {message.from_user.id}\n\n{user_pubg_info}"
-    )
+async def handle_nick(message: Message, state: FSMContext):
+    info = message.text
+    await bot.send_message(ADMIN_ID, f"📄 PUBG ma'lumot: {info}\n👤 @{message.from_user.username or message.from_user.full_name}")
+    await message.answer("📋 Ma'lumot qabul qilindi. Siz bilan tez orada bog‘lanamiz.")
     await state.clear()
 
-@dp.callback_query(F.data == "my_games")
-async def handle_my_games(callback_query: CallbackQuery):
-    await callback_query.message.answer("📋 Sizda hozircha hech qanday o‘yinlar yo‘q.")
-    await callback_query.answer()
-
 @dp.callback_query(F.data == "results")
-async def handle_results(callback_query: CallbackQuery):
-    await callback_query.message.answer("📊 Turnir natijalari hali mavjud emas.")
-    await callback_query.answer()
+async def results(callback: CallbackQuery):
+    await callback.message.answer("📊 Natijalar hali mavjud emas.")
+    await callback.answer()
+
+@dp.callback_query(F.data == "my_games")
+async def my_games(callback: CallbackQuery):
+    await callback.message.answer("🎮 Sizda hozircha hech qanday o‘yinlar yo‘q.")
+    await callback.answer()
 
 async def main():
     await dp.start_polling(bot)
