@@ -1,27 +1,24 @@
 import os
 import asyncio
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, F, types
 from aiogram.enums import ParseMode
-from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
-from aiogram import Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
+# TOKEN va ADMIN_ID
 TOKEN = "7858191430:AAF2G3nxunGzFDVCCLwApA_31ymjTLIQtZA"
-ADMIN_ID = 429955887  # Sizning admin ID'ingiz
+ADMIN_ID = 429955887
 
-# Papka yaratish (agar yo'q bo'lsa)
+# To‘lov cheklarini saqlash papkasi
 PAYMENT_CHECKS_FOLDER = "payment_checks"
 os.makedirs(PAYMENT_CHECKS_FOLDER, exist_ok=True)
 
-bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+# Bot va Dispatcher
+bot = Bot(token=TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher(storage=MemoryStorage())
-
-router = Router()
-dp.include_router(router)
 
 # FSM holatlari
 class RegistrationState(StatesGroup):
@@ -40,77 +37,77 @@ main_menu = InlineKeyboardMarkup(inline_keyboard=[
     ]
 ])
 
-@router.message(Command("start"))
+@dp.message(Command("start"))
 async def start_handler(message: Message):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📤 Check yuborish", callback_data="send_check")]
+    ])
+    await message.answer("Assalomu alaykum!\nTo‘lov chekini yuborish uchun tugmani bosing:", reply_markup=keyboard)
+
+@dp.callback_query(F.data == "send_check")
+async def ask_for_check(callback: CallbackQuery):
+    await callback.message.answer("Iltimos, to‘lov chekini rasm yoki fayl shaklida yuboring.")
+    await callback.answer()
+
+@dp.message(F.document | F.photo)
+async def handle_check_upload(message: Message):
+    if message.document:
+        file_id = message.document.file_id
+        ext = message.document.file_name.split('.')[-1]
+    else:
+        file_id = message.photo[-1].file_id
+        ext = "jpg"
+    file = await bot.get_file(file_id)
+    filename = f"{message.from_user.id}_{file_id}.{ext}"
+    saved_path = os.path.join(PAYMENT_CHECKS_FOLDER, filename)
+
+    # Faylni yuklab olish
+    await bot.download_file_by_id(file_id, destination=saved_path)
+
+    await message.answer("✅ Chekingiz qabul qilindi. Admin tekshiradi.")
+
+    # Adminga yuborish
+    await bot.send_photo(
+        ADMIN_ID, 
+        photo=file_id,
+        caption=(
+            f"🧾 Yangi to‘lov cheki keldi!\n"
+            f"👤 @{message.from_user.username or message.from_user.full_name}\n"
+            f"🆔 ID: {message.from_user.id}\n"
+            f"📎 Fayl nomi: {filename}"
+        )
+    )
     await message.answer(
-        "👋 <b>ASSALOMU ALYKUM</b>\n"
-        "TDM TOURNAMENT BOTGA🎮 Xush kelibsiz!\n\n"
-        "Bu botdan🤖 foydalanib turnirda qatnashish imkoniyatingiz bor.\n\n"
-        "⚠️ <b>Oldindan ogohlantirish:</b> turnirda qatnashish <b>pullik</b>💵.\n"
-        "Ya'ni slotlik! Biz sizni majburlamaymiz, bu <b>sizning qaroringiz</b>!!!🔞\n\n"
-        "Agar turnirda qatnashmoqchi bo‘lsangiz, mana shu pastdagi 💳 karta raqamlariga 💳\n"
-        "<b>10.000 so‘m</b> tashlab ro'yxatdan o'tishingiz mumkin!!!\n\n"
-        "❗ Chekni yuborish uchun pastdagi '📝 Ro'yxatdan o'tish' tugmasini bosing.\n"
-        "❗ Faqat rasm (chek rasmi) yuboring, ikki marta to‘lov qilmaslik uchun ehtiyot bo‘ling!\n\n"
-        "<b>TURNIRDA QATNASHUVCHILARGA OMAD!</b>",
-        reply_markup=main_menu
+        "Iltimos, endi PUBG nick va ID'ingizni yozib yuboring."
     )
-
-@router.callback_query(lambda c: c.data == "register")
-async def handle_register(callback_query: CallbackQuery, state: FSMContext):
-    await callback_query.message.answer(
-        "💳 Ro‘yxatdan o‘tish uchun to‘lovni amalga oshirib, rasmni yuboring.\n\n"
-        "📸 Iltimos, pastdagi 📎 tugmani bosib, 'Gallery' yoki 'Rasm' ni tanlang va to‘lov chekini rasm ko‘rinishida yuboring.\n\n"
-        "⚠️ Faqatgina rasm formatidagi chek qabul qilinadi!"
-    )
-    await callback_query.answer()
-    await state.set_state(RegistrationState.waiting_for_payment_check)
-
-@router.message(RegistrationState.waiting_for_payment_check, lambda message: message.content_type == "photo")
-async def handle_payment_check(message: Message, state: FSMContext):
-    photo = message.photo[-1]
-    file = await bot.get_file(photo.file_id)
-    file_path_telegram = file.file_path
-    filename = f"{message.from_user.id}_{photo.file_id}.jpg"
-    local_path = os.path.join(PAYMENT_CHECKS_FOLDER, filename)
-
-    # Yuklab olish
-    await bot.download_file(file_path_telegram, destination=local_path)
-
-    await message.answer("✅ Chek qabul qilindi! To‘lovingiz tekshirilmoqda, biroz kuting.")
-
-    # Adminga habar beramiz
-    await bot.send_message(
-        ADMIN_ID,
-        f"💳 Yangi to‘lov cheki yuborildi!\n"
-        f"👤 @{message.from_user.username or message.from_user.full_name}\n"
-        f"🆔 ID: {message.from_user.id}\n"
-        f"🖼 Fayl: {filename}"
-    )
-    await bot.send_photo(ADMIN_ID, photo.file_id)
-
-    await message.answer("Iltimos, endi PUBG nick va ID'ingizni yozib yuboring.")
+    # FSMni keyingi bosqichga o'tkazish
+    state = dp.current_state(user=message.from_user.id)
     await state.set_state(RegistrationState.waiting_for_pubg_nick)
 
-@router.message(RegistrationState.waiting_for_payment_check)
-async def handle_wrong_payment_format(message: Message):
-    await message.answer("❌ Noto‘g‘ri format! Iltimos, faqat rasm formatidagi to‘lov chekini yuboring.")
+@dp.message(RegistrationState.waiting_for_payment_check)
+async def wrong_payment_format(message: Message):
+    await message.answer("❌ Iltimos, faqat rasm yoki hujjat shaklidagi to‘lov chekini yuboring!")
 
-@router.message(RegistrationState.waiting_for_pubg_nick)
+@dp.message(RegistrationState.waiting_for_pubg_nick)
 async def handle_pubg_nick(message: Message, state: FSMContext):
     user_pubg_info = message.text
     await message.answer(
         f"📋 Sizning PUBG ma'lumotingiz qabul qilindi:\n{user_pubg_info}\n\n"
         "Tez orada turnir vaqti haqida xabar beramiz."
     )
+    # Adminga yuborish
+    await bot.send_message(
+        ADMIN_ID,
+        f"📢 PUBG ma'lumot keldi:\n👤 @{message.from_user.username or message.from_user.full_name}\n🆔 {message.from_user.id}\n\n{user_pubg_info}"
+    )
     await state.clear()
 
-@router.callback_query(lambda c: c.data == "my_games")
+@dp.callback_query(F.data == "my_games")
 async def handle_my_games(callback_query: CallbackQuery):
     await callback_query.message.answer("📋 Sizda hozircha hech qanday o‘yinlar yo‘q.")
     await callback_query.answer()
 
-@router.callback_query(lambda c: c.data == "results")
+@dp.callback_query(F.data == "results")
 async def handle_results(callback_query: CallbackQuery):
     await callback_query.message.answer("📊 Turnir natijalari hali mavjud emas.")
     await callback_query.answer()
@@ -120,5 +117,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
