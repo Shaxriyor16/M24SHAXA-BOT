@@ -6,22 +6,23 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.filters import Command
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-# .env orqali olingan token va admin id
+# TOKEN va ADMIN_ID
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
-# Fayllarni saqlash papkasi
+# Cheklar saqlanadigan papka
 PAYMENT_CHECKS_FOLDER = "payment_checks"
 os.makedirs(PAYMENT_CHECKS_FOLDER, exist_ok=True)
 
-# Bot va Dispatcher
+# Bot va dispatcher
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 
-# Holatlar (FSM)
+# FSM state
 class RegistrationState(StatesGroup):
     waiting_for_payment_check = State()
     waiting_for_pubg_nick = State()
@@ -72,11 +73,16 @@ async def handle_check(message: Message, state: FSMContext):
     path = os.path.join(PAYMENT_CHECKS_FOLDER, filename)
     await bot.download_file_by_id(file_id, destination=path)
 
-    # Adminga yuborish
+    # Tugmalar
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ To‘g‘ri", callback_data=f"approve:{message.from_user.id}")
+    builder.button(text="❌ Noto‘g‘ri", callback_data=f"reject:{message.from_user.id}")
+
     await bot.send_photo(
-        ADMIN_ID,
+        chat_id=ADMIN_ID,
         photo=file_id,
-        caption=f"📥 Yangi chek keldi:\n👤 @{message.from_user.username or message.from_user.full_name}\n🆔 ID: {message.from_user.id}\n📎 Fayl: {filename}"
+        caption=f"📥 Yangi chek:\n👤 @{message.from_user.username or message.from_user.full_name}\n🆔 ID: <code>{message.from_user.id}</code>",
+        reply_markup=builder.as_markup()
     )
 
     await message.answer("✅ Chekingiz yuborildi. Endi PUBG nick va ID'ingizni yozing.")
@@ -85,9 +91,29 @@ async def handle_check(message: Message, state: FSMContext):
 @dp.message(RegistrationState.waiting_for_pubg_nick)
 async def handle_nick(message: Message, state: FSMContext):
     info = message.text
-    await bot.send_message(ADMIN_ID, f"📄 PUBG ma'lumot: {info}\n👤 @{message.from_user.username or message.from_user.full_name}")
-    await message.answer("📋 Ma'lumot qabul qilindi. Siz bilan tez orada bog‘lanamiz.")
+    await bot.send_message(ADMIN_ID, f"📄 PUBG ma'lumot:\n👤 @{message.from_user.username or message.from_user.full_name}\n🆔 {message.from_user.id}\n{info}")
+    await message.answer("📋 Ma'lumot qabul qilindi. Tez orada bog‘lanamiz.")
     await state.clear()
+
+@dp.callback_query(F.data.startswith("approve:"))
+async def approve_callback(call: CallbackQuery):
+    user_id = int(call.data.split(":")[1])
+    await bot.send_message(
+        user_id,
+        "⚡️⚡️⚡️Chekingiz admin tomonidan tasdiqlandi✅✅✅.\n"
+        "Endi PUBG nick🪪 ingizni va ID🆔 ingizni yuboring va siz ro'yxatdan o'tgan hisoblanasiz🔥🔥🔥!!!"
+    )
+    await call.answer("✅ Tasdiqlandi!")
+
+@dp.callback_query(F.data.startswith("reject:"))
+async def reject_callback(call: CallbackQuery):
+    user_id = int(call.data.split(":")[1])
+    await bot.send_message(
+        user_id,
+        "❌ Chekingiz rad etildi!\n"
+        "🛑 Eskirgan yoki noto‘g‘ri chek yuborgan bo‘lsangiz, turnirdan chetlatilishingiz mumkin."
+    )
+    await call.answer("❌ Rad etildi.")
 
 @dp.callback_query(F.data == "results")
 async def results(callback: CallbackQuery):
